@@ -18,8 +18,9 @@ resource "aws_instance" "control_plane" {
   vpc_security_group_ids = [aws_security_group.k8s_nodes.id]
 
   tags = {
-    Name = "k8s-control-plane"
-    Role = "control-plane"
+    Name    = "k8s-control-plane"
+    Role    = "control-plane"
+    Project = "k8s-cluster"
   }
 }
 
@@ -33,8 +34,9 @@ resource "aws_instance" "workers" {
   vpc_security_group_ids = [aws_security_group.k8s_nodes.id]
 
   tags = {
-    Name = "k8s-worker-${count.index + 1}"
-    Role = "worker"
+    Name    = "k8s-worker-${count.index + 1}"
+    Role    = "worker"
+    Project = "k8s-cluster"
   }
 }
 
