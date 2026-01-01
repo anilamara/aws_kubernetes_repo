@@ -1,20 +1,21 @@
 ---
-- name: Post-Cluster Setup (Jump Server, Metrics, ArgoCD)
+- name: Post-Cluster Setup (Jump Server, Metrics, ArgoCD, Monitoring)
   hosts: master
+  become: no
   vars:
     metrics_server_url: "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
     argocd_manifest_url: "https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
 
   tasks:
-    # 1. CONFIGURE KUBECTL ON JUMP SERVER
-    - name: Ensure .kube directory exists on Jump Server
+    # --- 1. CONFIGURE KUBECTL ON JUMP SERVER ---
+    - name: Ensure .kube directory exists locally on Jump Server
       delegate_to: localhost
       file:
         path: "{{ lookup('env', 'HOME') }}/.kube"
         state: directory
         mode: '0755'
 
-    - name: Fetch kubeconfig to Jump Server
+    - name: Fetch kubeconfig from Master to Jump Server
       fetch:
         src: /home/ubuntu/.kube/config
         dest: "~/.kube/config"
@@ -26,46 +27,78 @@
         path: "~/.kube/config"
         mode: '0600'
 
-    # 2. INSTALL METRICS SERVER
-    - name: Download Metrics Server manifest
-      get_url:
-        url: "{{ metrics_server_url }}"
-        dest: /tmp/metrics-server.yaml
+    # --- 2. INSTALL METRICS SERVER ---
+    - name: Apply Metrics Server manifest
+      command: kubectl apply -f {{ metrics_server_url }}
 
-    - name: Patch Metrics Server for insecure TLS (required for self-signed)
-      replace:
-        path: /tmp/metrics-server.yaml
-        regexp: '- --secure-port=4443'
-        replace: "- --secure-port=4443\n        - --kubelet-insecure-tls"
+    - name: Patch Metrics Server for insecure TLS
+      command: >
+        kubectl patch deployment metrics-server -n kube-system --type='json' 
+        -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+      register: patch_result
+      changed_when: "'patched' in patch_result.stdout"
 
-    - name: Apply Metrics Server
-      command: kubectl apply -f /tmp/metrics-server.yaml
-
-    # 3. INSTALL ARGOCD
-    - name: Create argocd namespace
-      command: kubectl create namespace argocd
-      register: ns_result
-      failed_when: false # Don't fail if namespace already exists
+    # --- 3. INSTALL ARGOCD ---
+    - name: Create ArgoCD namespace
+      shell: kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+      # We use shell here because of the pipe (|)
 
     - name: Install ArgoCD
       command: kubectl apply -n argocd -f {{ argocd_manifest_url }}
 
-    - name: Patch ArgoCD Server to NodePort
-      command: >
-        kubectl patch svc argocd-server -n argocd 
+    - name: Patch ArgoCD Server to use NodePort
+      shell: |
+        kubectl patch svc argocd-server -n argocd \
         -p '{"spec": {"type": "NodePort"}}'
 
-    - name: Wait for ArgoCD Secret to be generated
+    # --- 4. INSTALL HELM ---
+    - name: Check if Helm is installed
+      command: helm version
+      register: helm_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Install Helm if missing
+      shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      when: helm_check.rc != 0
+
+    # --- 5. INSTALL PROMETHEUS & GRAFANA ---
+    - name: Add Prometheus Helm Repo
+      shell: |
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm repo update
+
+    - name: Deploy Kube-Prometheus-Stack (Prometheus + Grafana)
+      shell: |
+        helm upgrade --install kube-stack prometheus-community/kube-prometheus-stack \
+          --namespace monitoring \
+          --create-namespace \
+          --set grafana.service.type=NodePort \
+          --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+          --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
+
+    # --- 6. RETRIEVE CREDENTIALS ---
+    - name: Wait for secrets to be generated
       pause:
-        seconds: 10
+        seconds: 15
 
     - name: Get ArgoCD Admin Password
       shell: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
       register: argocd_password
 
-    - name: Display ArgoCD Credentials
+    - name: Get Grafana Admin Password
+      shell: kubectl get secret -n monitoring kube-stack-grafana -o jsonpath="{.data.admin-password}" | base64 -d
+      register: grafana_password
+
+    - name: Display Setup Summary
       debug:
         msg: 
-          - "ArgoCD URL: http://{{ inventory_hostname }}:<NodePort>"
-          - "User: admin"
-          - "Password: {{ argocd_password.stdout }}"
+          - "################################################"
+          - "ACCESS SUMMARY"
+          - "################################################"
+          - "ARGOCD USER: admin"
+          - "ARGOCD PASS: {{ argocd_password.stdout }}"
+          - "GRAFANA USER: admin"
+          - "GRAFANA PASS: {{ grafana_password.stdout }}"
+          - "################################################"
+          - "Run 'kubectl get svc -A | grep NodePort' to find UI ports."
