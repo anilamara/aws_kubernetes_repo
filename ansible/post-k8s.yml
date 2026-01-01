@@ -1,0 +1,71 @@
+---
+- name: Post-Cluster Setup (Jump Server, Metrics, ArgoCD)
+  hosts: master
+  vars:
+    metrics_server_url: "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+    argocd_manifest_url: "https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
+
+  tasks:
+    # 1. CONFIGURE KUBECTL ON JUMP SERVER
+    - name: Ensure .kube directory exists on Jump Server
+      delegate_to: localhost
+      file:
+        path: "{{ lookup('env', 'HOME') }}/.kube"
+        state: directory
+        mode: '0755'
+
+    - name: Fetch kubeconfig to Jump Server
+      fetch:
+        src: /home/ubuntu/.kube/config
+        dest: "~/.kube/config"
+        flat: yes
+
+    - name: Set local kubeconfig permissions
+      delegate_to: localhost
+      file:
+        path: "~/.kube/config"
+        mode: '0600'
+
+    # 2. INSTALL METRICS SERVER
+    - name: Download Metrics Server manifest
+      get_url:
+        url: "{{ metrics_server_url }}"
+        dest: /tmp/metrics-server.yaml
+
+    - name: Patch Metrics Server for insecure TLS (required for self-signed)
+      replace:
+        path: /tmp/metrics-server.yaml
+        regexp: '- --secure-port=4443'
+        replace: "- --secure-port=4443\n        - --kubelet-insecure-tls"
+
+    - name: Apply Metrics Server
+      command: kubectl apply -f /tmp/metrics-server.yaml
+
+    # 3. INSTALL ARGOCD
+    - name: Create argocd namespace
+      command: kubectl create namespace argocd
+      register: ns_result
+      failed_when: false # Don't fail if namespace already exists
+
+    - name: Install ArgoCD
+      command: kubectl apply -n argocd -f {{ argocd_manifest_url }}
+
+    - name: Patch ArgoCD Server to NodePort
+      command: >
+        kubectl patch svc argocd-server -n argocd 
+        -p '{"spec": {"type": "NodePort"}}'
+
+    - name: Wait for ArgoCD Secret to be generated
+      pause:
+        seconds: 10
+
+    - name: Get ArgoCD Admin Password
+      shell: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+      register: argocd_password
+
+    - name: Display ArgoCD Credentials
+      debug:
+        msg: 
+          - "ArgoCD URL: http://{{ inventory_hostname }}:<NodePort>"
+          - "User: admin"
+          - "Password: {{ argocd_password.stdout }}"

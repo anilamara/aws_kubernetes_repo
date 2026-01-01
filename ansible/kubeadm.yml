@@ -85,12 +85,6 @@
         dest: ~/.kube/config
         flat: yes
 
-    - name: Set Jump Server config permissions
-      delegate_to: localhost
-      file:
-        path: ~/.kube/config
-        mode: '0600'
-
 # PART 2: Join Worker Nodes
 - name: Join Worker Nodes to Cluster
   hosts: workers
