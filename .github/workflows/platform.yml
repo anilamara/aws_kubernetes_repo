@@ -19,7 +19,7 @@ jobs:
         working-directory: k8s-nodes/terraform
         run: |
           terraform init
-          terraform apply -auto-approve
+          terraform apply -var-file=terraform.tfvars -auto-approve
 
   ansible_baseline:
     name: Baseline OS Setup
