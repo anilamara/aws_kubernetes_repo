@@ -18,3 +18,4 @@
 .vscode/
 .idea/
 
+**/ansible/inventory/hosts.ini

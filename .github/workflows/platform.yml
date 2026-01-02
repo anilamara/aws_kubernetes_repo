@@ -1,0 +1,68 @@
+name: Kubernetes Platform Pipeline
+
+on:
+  workflow_dispatch:
+    paths:
+      - "k8s-nodes/terraform/**"
+      - "ansible/**"
+  workflow_dispatch:
+    inputs:
+      run_kubeadm:
+        description: "Run kubeadm bootstrap (YES only first time)"
+        required: true
+        default: "NO"
+
+jobs:
+  terraform:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Terraform Init
+        working-directory: k8s-nodes/terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: k8s-nodes/terraform
+        run: terraform apply -auto-approve
+
+  ansible_baseline:
+    needs: terraform
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run baseline playbook
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/hosts.ini \
+            ansible/site.yml
+
+  kubeadm:
+    needs: ansible_baseline
+    if: github.event.inputs.run_kubeadm == 'YES'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run kubeadm bootstrap
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/hosts.ini \
+            ansible/kubeadm.yml
+
+  post_k8s:
+    needs: [ansible_baseline, kubeadm]
+    if: |
+      github.event.inputs.run_kubeadm == 'YES' ||
+      github.event_name == 'push'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run post-k8s playbook
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/hosts.ini \
+            ansible/post-k8s.yml
+

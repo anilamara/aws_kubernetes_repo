@@ -1,4 +1,4 @@
-[control_plane]
+[master]
 ${control_ip}
 
 [workers]
@@ -9,4 +9,4 @@ ${ip}
 [all:vars]
 ansible_user=ubuntu
 ansible_ssh_private_key_file=~/.ssh/k8s-cluster-key
-
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
