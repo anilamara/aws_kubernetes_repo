@@ -56,5 +56,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          ansible-playbook -i ansible/inventory/hosts.ini ansible/post_setup.yml
+          ansible-playbook -i ansible/inventory/hosts.ini ansible/post_k8s.yml
 
