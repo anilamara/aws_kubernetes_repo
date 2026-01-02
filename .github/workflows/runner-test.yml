@@ -1,0 +1,22 @@
+name: Runner Smoke Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: self-hosted
+
+    steps:
+      - name: Who am I
+        run: whoami
+
+      - name: Hostname
+        run: hostname
+
+      - name: Tools check
+        run: |
+          terraform version
+          ansible --version
+          kubectl version --client
+
