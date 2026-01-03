@@ -1,88 +1,90 @@
-name: Kubernetes Platform Pipeline
+name: Kubernetes Platform Pipeline (Clean)
 
 on:
   workflow_dispatch:
     inputs:
-      action:
-        description: "Choose action: apply or destroy"
-        required: true
-        default: "apply"
-        type: choice
-        options:
-          - apply
-          - destroy
-
       run_kubeadm:
-        description: "Run kubeadm ONLY first time"
+        description: "Run kubeadm init (YES only first time)"
         required: true
         default: "NO"
 
 jobs:
-  terraform:
-    name: Terraform Lifecycle
+  platform:
+    name: Terraform → Ansible → Kubernetes
     runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------
+      # TERRAFORM
+      # -----------------------------
       - name: Terraform Init
         working-directory: k8s-nodes/terraform
         run: terraform init
 
-      - name: Terraform Destroy
-        if: github.event.inputs.action == 'destroy'
-        working-directory: k8s-nodes/terraform
-        run: terraform destroy -auto-approve
-
       - name: Terraform Apply
-        if: github.event.inputs.action == 'apply'
         working-directory: k8s-nodes/terraform
         run: terraform apply -auto-approve
 
-  ansible_baseline:
-    name: Baseline OS Setup
-    needs: terraform
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
+      # -----------------------------
+      # INVENTORY VALIDATION
+      # -----------------------------
+      - name: Verify inventory file exists
+        run: |
+          test -f ansible/inventory/hosts.ini
+          echo "Inventory file exists ✅"
 
-      - name: Initial wait after Terraform
-        run: sleep 30
- 
-      - name: Fail if inventory missing
+      - name: Validate inventory contents
         run: |
-          grep -q '\[master\]' ansible/inventory/hosts.ini
-    
-      - name: Validate Ansible inventory
-        run: |
+          echo "===== INVENTORY ====="
+          cat ansible/inventory/hosts.ini
+          echo "====================="
           ansible-inventory -i ansible/inventory/hosts.ini --list
 
-      - name: Wait for SSH
+      # -----------------------------
+      # WAIT FOR NODES
+      # -----------------------------
+      - name: Wait for SSH on all nodes
         run: |
-          ansible all -i ansible/inventory/hosts.ini \
-          -m wait_for_connection \
-          -a "timeout=300 delay=10"
+          ansible all \
+            -i ansible/inventory/hosts.ini \
+            -m wait_for_connection \
+            -a "timeout=600 delay=15"
 
-      - name: Run baseline playbook
+      # -----------------------------
+      # BASELINE OS SETUP
+      # -----------------------------
+      - name: Run baseline OS setup
         run: |
-          ansible-playbook -i ansible/inventory/hosts.ini ansible/site.yml
+          ansible-playbook \
+            -i ansible/inventory/hosts.ini \
+            ansible/site.yml
 
-  kubeadm:
-    name: Kubernetes Bootstrap
-    needs: ansible_baseline
-    if: github.event.inputs.run_kubeadm == 'YES'
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          ansible-playbook -i ansible/inventory/hosts.ini ansible/kubeadm.yml
+      # -----------------------------
+      # KUBEADM (OPTIONAL)
+      # -----------------------------
+      - name: Kubernetes bootstrap (kubeadm)
+        if: github.event.inputs.run_kubeadm == 'YES'
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/hosts.ini \
+            ansible/kubeadm.yml
 
-  post_k8s:
-    name: Post Kubernetes Setup
-    needs: kubeadm
-    if: github.event.inputs.run_kubeadm == 'YES'
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          ansible-playbook -i ansible/inventory/hosts.ini ansible/post-k8s.yml
+      # -----------------------------
+      # POST K8S (OPTIONAL)
+      # -----------------------------
+      - name: Post Kubernetes setup
+        if: github.event.inputs.run_kubeadm == 'YES'
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/hosts.ini \
+            ansible/post-k8s.yml
+
+      # -----------------------------
+      # FINAL CONFIRMATION
+      # -----------------------------
+      - name: Platform pipeline completed
+        run: echo "✅ Kubernetes platform pipeline completed successfully"
 
