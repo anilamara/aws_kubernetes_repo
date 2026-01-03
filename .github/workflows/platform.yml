@@ -3,6 +3,15 @@ name: Kubernetes Platform Pipeline (Clean)
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: "Choose action"
+        required: true
+        type: choice
+        default: apply
+        options:
+          - apply
+          - destroy
+
       run_kubeadm:
         description: "Run kubeadm init (YES only first time)"
         required: true
@@ -24,9 +33,24 @@ jobs:
         working-directory: k8s-nodes/terraform
         run: terraform init
 
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        working-directory: k8s-nodes/terraform
+        run: terraform destroy -auto-approve
+
       - name: Terraform Apply
+        if: github.event.inputs.action == 'apply'
         working-directory: k8s-nodes/terraform
         run: terraform apply -auto-approve
+
+      # -----------------------------
+      # STOP PIPELINE AFTER DESTROY
+      # -----------------------------
+      - name: Stop after destroy
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          echo "í·¹ Infrastructure destroyed successfully"
+          exit 0
 
       # -----------------------------
       # INVENTORY VALIDATION

@@ -1,0 +1,123 @@
+name: Kubernetes Platform Pipeline (Artifacts)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_kubeadm:
+        description: "Run kubeadm init (YES only first time)"
+        required: true
+        default: "NO"
+
+jobs:
+# -------------------------------------------------
+# JOB 1 — TERRAFORM
+# -------------------------------------------------
+  terraform:
+    name: Terraform Provision
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Terraform Init
+        working-directory: k8s-nodes/terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: k8s-nodes/terraform
+        run: terraform apply -auto-approve
+
+      - name: Verify inventory generated
+        run: |
+          test -f ansible/inventory/hosts.ini
+          cat ansible/inventory/hosts.ini
+
+      - name: Upload Ansible inventory artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ansible-inventory
+          path: ansible/inventory/hosts.ini
+
+# -------------------------------------------------
+# JOB 2 — BASELINE
+# -------------------------------------------------
+  ansible_baseline:
+    name: Baseline OS Setup
+    needs: terraform
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download inventory artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ansible-inventory
+          path: ansible/inventory
+
+      - name: Validate inventory
+        run: |
+          ls -l ansible/inventory
+          ansible-inventory -i ansible/inventory/hosts.ini --list
+
+      - name: Wait for SSH
+        run: |
+          ansible all \
+            -i ansible/inventory/hosts.ini \
+            -m wait_for_connection \
+            -a "timeout=600 delay=15"
+
+      - name: Run baseline playbook
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/hosts.ini \
+            ansible/site.yml
+
+# -------------------------------------------------
+# JOB 3 — KUBEADM (OPTIONAL)
+# -------------------------------------------------
+  kubeadm:
+    name: Kubernetes Bootstrap
+    needs: ansible_baseline
+    if: github.event.inputs.run_kubeadm == 'YES'
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download inventory artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ansible-inventory
+          path: ansible/inventory
+
+      - name: Run kubeadm
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/hosts.ini \
+            ansible/kubeadm.yml
+
+# -------------------------------------------------
+# JOB 4 — POST K8S
+# -------------------------------------------------
+  post_k8s:
+    name: Post Kubernetes Setup
+    needs: kubeadm
+    if: github.event.inputs.run_kubeadm == 'YES'
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download inventory artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ansible-inventory
+          path: ansible/inventory
+
+      - name: Run post-k8s playbook
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/hosts.ini \
+            ansible/post-k8s.yml
+
