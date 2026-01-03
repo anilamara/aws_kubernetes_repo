@@ -45,13 +45,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy inventory to Ansible directory
-        run: |
-          cp k8s-nodes/terraform/hosts.ini ansible/inventory/hosts.ini
-
       - name: Initial wait after Terraform
         run: sleep 30
-
+ 
+      - name: Fail if inventory missing
+        run: |
+          grep -q '\[master\]' ansible/inventory/hosts.ini
+    
       - name: Validate Ansible inventory
         run: |
           ansible-inventory -i ansible/inventory/hosts.ini --list
