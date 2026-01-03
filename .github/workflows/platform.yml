@@ -45,6 +45,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Initial wait after Terraform
+        run: sleep 30
+
+      - name: Validate Ansible inventory
+        run: |
+          ansible-inventory -i ansible/inventory/hosts.ini --list
+
       - name: Wait for SSH
         run: |
           ansible all -i ansible/inventory/hosts.ini \
