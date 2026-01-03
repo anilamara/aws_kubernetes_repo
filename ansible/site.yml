@@ -6,3 +6,9 @@
     - common
     - crio
     - kubeadm
+  tasks:
+    - name: baseline playbook executed
+      copy:
+        content: "baseline_executed"
+        dest: /tmp/ansible_baseline_executed
+
