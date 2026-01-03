@@ -7,10 +7,10 @@ on:
         description: "Choose action"
         required: true
         type: choice
-        default: apply
         options:
           - apply
           - destroy
+        default: apply
 
       run_kubeadm:
         description: "Run kubeadm init (YES only first time)"
@@ -34,20 +34,17 @@ jobs:
         run: terraform init
 
       - name: Terraform Destroy
-        if: github.event.inputs.action == 'destroy'
+        if: ${{ github.event.inputs.action == 'destroy' }}
         working-directory: k8s-nodes/terraform
         run: terraform destroy -auto-approve
 
       - name: Terraform Apply
-        if: github.event.inputs.action == 'apply'
+        if: ${{ github.event.inputs.action == 'apply' }}
         working-directory: k8s-nodes/terraform
         run: terraform apply -auto-approve
 
-      # -----------------------------
-      # STOP PIPELINE AFTER DESTROY
-      # -----------------------------
       - name: Stop after destroy
-        if: github.event.inputs.action == 'destroy'
+        if: ${{ github.event.inputs.action == 'destroy' }}
         run: |
           echo "í·¹ Infrastructure destroyed successfully"
           exit 0
@@ -90,7 +87,7 @@ jobs:
       # KUBEADM (OPTIONAL)
       # -----------------------------
       - name: Kubernetes bootstrap (kubeadm)
-        if: github.event.inputs.run_kubeadm == 'YES'
+        if: ${{ github.event.inputs.run_kubeadm == 'YES' }}
         run: |
           ansible-playbook \
             -i ansible/inventory/hosts.ini \
@@ -100,15 +97,12 @@ jobs:
       # POST K8S (OPTIONAL)
       # -----------------------------
       - name: Post Kubernetes setup
-        if: github.event.inputs.run_kubeadm == 'YES'
+        if: ${{ github.event.inputs.run_kubeadm == 'YES' }}
         run: |
           ansible-playbook \
             -i ansible/inventory/hosts.ini \
             ansible/post-k8s.yml
 
-      # -----------------------------
-      # FINAL CONFIRMATION
-      # -----------------------------
       - name: Platform pipeline completed
         run: echo "âœ… Kubernetes platform pipeline completed successfully"
 
