@@ -35,6 +35,7 @@ jobs:
 
       - name: Terraform Destroy
         if: ${{ github.event.inputs.action == 'destroy' }}
+        environment: production
         working-directory: k8s-nodes/terraform
         run: terraform destroy -auto-approve
 
