@@ -26,15 +26,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -----------------------------
-      # TERRAFORM
-      # -----------------------------
       - name: Terraform Init
         working-directory: k8s-nodes/terraform
         run: terraform init
 
       - name: Terraform Destroy
-        if: ${{ github.event.inputs.action == 'destroy' }}
+        assume if: ${{ github.event.inputs.action == 'destroy' }}
         working-directory: k8s-nodes/terraform
         run: terraform destroy -auto-approve
 
@@ -43,66 +40,40 @@ jobs:
         working-directory: k8s-nodes/terraform
         run: terraform apply -auto-approve
 
-      - name: Stop after destroy
-        if: ${{ github.event.inputs.action == 'destroy' }}
-        run: |
-          echo "í·¹ Infrastructure destroyed successfully"
-          exit 0
-
-      # -----------------------------
-      # INVENTORY VALIDATION
-      # -----------------------------
       - name: Verify inventory file exists
+        if: ${{ github.event.inputs.action == 'apply' }}
         run: |
           test -f ansible/inventory/hosts.ini
-          echo "Inventory file exists âœ…"
+          echo "Inventory file exists"
 
       - name: Validate inventory contents
+        if: ${{ github.event.inputs.action == 'apply' }}
         run: |
-          echo "===== INVENTORY ====="
           cat ansible/inventory/hosts.ini
-          echo "====================="
           ansible-inventory -i ansible/inventory/hosts.ini --list
 
-      # -----------------------------
-      # WAIT FOR NODES
-      # -----------------------------
       - name: Wait for SSH on all nodes
+        if: ${{ github.event.inputs.action == 'apply' }}
         run: |
-          ansible all \
-            -i ansible/inventory/hosts.ini \
+          ansible all -i ansible/inventory/hosts.ini \
             -m wait_for_connection \
             -a "timeout=600 delay=15"
 
-      # -----------------------------
-      # BASELINE OS SETUP
-      # -----------------------------
       - name: Run baseline OS setup
+        if: ${{ github.event.inputs.action == 'apply' }}
         run: |
-          ansible-playbook \
-            -i ansible/inventory/hosts.ini \
-            ansible/site.yml
+          ansible-playbook -i ansible/inventory/hosts.ini ansible/site.yml
 
-      # -----------------------------
-      # KUBEADM (OPTIONAL)
-      # -----------------------------
       - name: Kubernetes bootstrap (kubeadm)
         if: ${{ github.event.inputs.run_kubeadm == 'YES' }}
         run: |
-          ansible-playbook \
-            -i ansible/inventory/hosts.ini \
-            ansible/kubeadm.yml
+          ansible-playbook -i ansible/inventory/hosts.ini ansible/kubeadm.yml
 
-      # -----------------------------
-      # POST K8S (OPTIONAL)
-      # -----------------------------
       - name: Post Kubernetes setup
         if: ${{ github.event.inputs.run_kubeadm == 'YES' }}
         run: |
-          ansible-playbook \
-            -i ansible/inventory/hosts.ini \
-            ansible/post-k8s.yml
+          ansible-playbook -i ansible/inventory/hosts.ini ansible/post-k8s.yml
 
       - name: Platform pipeline completed
-        run: echo "âœ… Kubernetes platform pipeline completed successfully"
+        run: echo "Kubernetes platform pipeline completed successfully"
 
