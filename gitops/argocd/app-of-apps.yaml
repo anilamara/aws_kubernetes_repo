@@ -4,6 +4,7 @@ metadata:
   name: platform-apps
   namespace: argocd
 spec:
+  project: default
   source:
     repoURL: https://github.com/anilamara/aws_kubernetes_repo.git
     targetRevision: main
